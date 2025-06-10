@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "visamate-ai"
+version = "0.1.0"
+description = "AI-powered Canada study visa application automation"
+requires-python = ">=3.8"
+dependencies = [
+    "pytest",
+    "python-dateutil",
+]
+
+[tool.setuptools]
+packages = ["agents"] 
