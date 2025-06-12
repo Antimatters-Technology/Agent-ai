@@ -28,11 +28,46 @@
 ## 🏗  Four‑Tier System Anatomy (Exec View)
 
 ```
-Tier‑1  Data Ingestion  →  Tier‑2  Eligibility ML  →  Tier‑3  Package Builder  →  Tier‑4  Submission Optimizer
-Smart Forms │ Doc‑AI    →  Postgres RLS + Risk‑API →  SOP Gen │ Fin‑Planner     →  Quota Monitor │ RPA │ RCIC Review
-                                ▲                              │                              │
-                   Policy Crawler │ Uni/Scholarships ETL        │                              ▼
-                       (nightly)  └─────────── CF Queues ───────┘                    IRCC Portal Upload
+T┌────────────────────────────────────────────────────────────────────────────┐
+│                          Tier 1  ▸  DATA INGESTION                        │
+│ ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐ │
+│ │ Smart Forms (Voice) │  │ Gen-AI Doc Extract  │  │ Policy + Quota Craw │ │
+│ └──────────┬──────────┘  └──────────┬──────────┘  └──────────┬──────────┘ │
+└────────────┼────────────────────────┼────────────────────────┼────────────┘
+             ▼                        ▼                        ▼
+      (Supabase PG + RLS)       (Supabase PG + RLS)       (Supabase PG)               Uni/Scholarships ETL
+
+            ╔═══════════════════════════════════════════════════╗
+            ║          SHARED  SERVICES (Zero-Trust)           ║
+            ║  Postgres RLS │ Storage SSE-KMS │ CF Queues      ║
+            ║  Chroma/Pinecone │ Upstash Redis │ Audit Log     ║
+            ╚═══════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         Tier 2  ▸  ELIGIBILITY & ML                       │
+│ ┌─────────────────────┐    ┌──────────────────────────────────────────┐   │
+│ │  SDS Rule Engine    │──▶ │  ML Risk-Score API (89 % accuracy)      │   │
+│ └─────────────────────┘    └──────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         Tier 3  ▸  PACKAGE BUILDER                        │
+│ ┌───────────────┐  ┌───────────────────┐  ┌───────────────────────────┐   │
+│ │ SOP Generator │  │ Financial Planner │  │ PAL / TAL Validator      │   │
+│ │ (Llama-3 RAG) │  └─────────┬─────────┘  └───────────────────────────┘   │
+│ └───────────────┘            │                                           │
+└──────────────────────────────┼────────────────────────────────────────────┘
+                               ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                      Tier 4  ▸  SUBMISSION OPTIMIZER                      │
+│ ┌─────────────────────┐  ┌───────────────────┐  ┌──────────────────────┐  │
+│ │ Quota Monitor       │  │ RPA Uploader →    │  │ Human RCIC Review    │  │
+│ │  (Prov & IRCC)      │  │    IRCC Portal    │  └──────────────────────┘  │
+│ └─────────────────────┘  └───────────────────┘                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+                
 ```
 
 *Shared spine:* Supabase PG (RLS+pgcrypto) · Supabase Storage ▶ CF R2 · Cloudflare Queues · Chroma▶Pinecone · Upstash Redis.
