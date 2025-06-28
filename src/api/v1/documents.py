@@ -255,8 +255,8 @@ class DocumentService:
                 detail="Failed to process upload completion"
             )
     
-    async def _trigger_ocr_processing(self, document_id: str):
-        """Trigger OCR processing for uploaded document."""
+    async def _trigger_ocr_processing(self, document_id: str, application_id: Optional[str] = None):
+        """Trigger OCR processing for uploaded document and auto-fill questionnaire."""
         try:
             logger.info(f"Triggering OCR processing for document {document_id}")
             
@@ -271,16 +271,44 @@ class DocumentService:
                 })
                 await self.metadata_service.store_document_metadata(metadata)
                 
-                # TODO: Implement actual OCR processing
-                # For now, simulate processing completion
-                logger.info(f"OCR processing started for document {document_id}")
-                
-                # In production, this would:
-                # 1. Send message to SQS queue
-                # 2. Lambda function picks up the message  
-                # 3. Process document with AWS Textract
-                # 4. Store results back to metadata
-                
+                # Connect to ApplicationService OCR auto-fill pipeline
+                try:
+                    from src.services.application_service import application_service
+                    
+                    # Use session_id as application_id if not provided
+                    if not application_id:
+                        application_id = metadata.get('session_id') or 'default'
+                    
+                    # Process document for auto-fill
+                    ocr_result = await application_service.process_document_for_auto_fill(
+                        application_id=application_id,
+                        document_id=document_id
+                    )
+                    
+                    # Update metadata with OCR results
+                    metadata.update({
+                        'status': DocumentStatus.PROCESSED.value,
+                        'processed_at': datetime.utcnow().isoformat(),
+                        'ocr_results': {
+                            'extracted_fields': ocr_result.extracted_fields,
+                            'mapped_questionnaire_data': ocr_result.mapped_questionnaire_data,
+                            'confidence_scores': ocr_result.confidence_scores,
+                            'auto_filled_count': ocr_result.auto_filled_count,
+                            'manual_review_required': ocr_result.manual_review_required,
+                            'processing_time_ms': ocr_result.processing_time_ms
+                        },
+                        'updated_at': datetime.utcnow().isoformat()
+                    })
+                    await self.metadata_service.store_document_metadata(metadata)
+                    
+                    logger.info(f"OCR auto-fill completed: {ocr_result.auto_filled_count} fields filled for document {document_id}")
+                    return ocr_result
+                    
+                except ImportError:
+                    logger.warning("ApplicationService not available, using fallback OCR processing")
+                    # Fallback to basic processing
+                    logger.info(f"OCR processing started for document {document_id}")
+                    
         except Exception as e:
             logger.error(f"Failed to trigger OCR processing: {str(e)}")
             # Update status to failed
