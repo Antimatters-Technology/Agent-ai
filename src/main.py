@@ -8,7 +8,7 @@ import sys
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -19,6 +19,7 @@ import uvicorn
 
 from src.core.config import settings
 from src.api.v1.wizard import router as wizard_router
+from src.api.v1.documents import router as documents_router
 from src.services.gemini_service import gemini_service
 
 # Configure logging
@@ -281,6 +282,85 @@ app.include_router(
     prefix=f"/api/{settings.API_VERSION}/wizard",
     tags=["Wizard"]
 )
+
+app.include_router(
+    documents_router,
+    prefix=f"/api/{settings.API_VERSION}/documents",
+    tags=["Documents"]
+)
+
+# Add fallback routes for frontend URL issues (duplicate /api/v1/)
+@app.post("/api/v1/api/v1/wizard/start", tags=["Fallback"])
+async def fallback_wizard_start():
+    """Fallback route for frontend URL duplication issue."""
+    from fastapi import Depends
+    from src.api.v1.wizard import start_wizard_session
+    logger.warning("Frontend called duplicate URL: /api/v1/api/v1/wizard/start - redirecting to correct endpoint")
+    return await start_wizard_session()
+
+@app.get("/api/v1/api/v1/wizard/tree/{session_id}", tags=["Fallback"])
+async def fallback_wizard_tree(session_id: str):
+    """Fallback route for frontend URL duplication issue."""
+    from src.api.v1.wizard import get_wizard_tree
+    logger.warning(f"Frontend called duplicate URL: /api/v1/api/v1/wizard/tree/{session_id} - redirecting to correct endpoint")
+    return await get_wizard_tree(session_id)
+
+@app.get("/api/v1/api/v1/wizard/document-checklist/{session_id}", tags=["Fallback"])
+async def fallback_document_checklist(session_id: str):
+    """Fallback route for frontend URL duplication issue."""
+    from src.api.v1.wizard import get_document_checklist
+    logger.warning(f"Frontend called duplicate URL: /api/v1/api/v1/wizard/document-checklist/{session_id} - redirecting to correct endpoint")
+    return await get_document_checklist(session_id)
+
+@app.post("/api/v1/api/v1/wizard/questionnaire/{session_id}", tags=["Fallback"])
+async def fallback_questionnaire(session_id: str, answers: dict):
+    """Fallback route for frontend URL duplication issue."""
+    from src.api.v1.wizard import submit_questionnaire_answers
+    logger.warning(f"Frontend called duplicate URL: /api/v1/api/v1/wizard/questionnaire/{session_id} - redirecting to correct endpoint")
+    return await submit_questionnaire_answers(session_id, answers)
+
+@app.post("/api/v1/api/v1/documents/init", tags=["Fallback"])
+async def fallback_documents_init(data: dict):
+    """Fallback route for frontend URL duplication issue."""
+    from src.api.v1.documents import initialize_document_upload_simple
+    logger.warning(f"Frontend called duplicate URL: /api/v1/api/v1/documents/init - redirecting to simple endpoint")
+    return await initialize_document_upload_simple(data)
+
+# WebSocket stub (to stop 403 errors)
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Basic WebSocket endpoint stub to prevent frontend errors."""
+    logger.info("WebSocket connection attempted - accepting and closing gracefully")
+    try:
+        await websocket.accept()
+        await websocket.send_text('{"type":"info","message":"WebSocket not implemented yet"}')
+        await websocket.close()
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+
+# Debug endpoint to test frontend connectivity
+@app.get("/debug/endpoints", tags=["Debug"])
+async def debug_endpoints():
+    """Debug endpoint showing all available routes."""
+    routes_info = []
+    for route in app.routes:
+        if hasattr(route, 'methods'):
+            routes_info.append({
+                "path": route.path,
+                "methods": list(route.methods),
+                "name": route.name
+            })
+    return {
+        "message": "Available API endpoints",
+        "base_url": "http://localhost:8000",
+        "correct_urls": {
+            "wizard_start": "POST http://localhost:8000/api/v1/wizard/start",
+            "wizard_tree": "GET http://localhost:8000/api/v1/wizard/tree/{session_id}",
+            "document_init": "POST http://localhost:8000/api/v1/documents/init",
+            "health": "GET http://localhost:8000/health"
+        },
+        "routes": routes_info
+    }
 
 
 # Custom OpenAPI schema

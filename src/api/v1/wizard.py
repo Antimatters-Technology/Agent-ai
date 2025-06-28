@@ -19,6 +19,10 @@ from src.services.form_service import form_service, FormType
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# In-memory storage for session answers (temporary solution)
+# In production, this should be replaced with database storage
+session_answers_store: Dict[str, Dict[str, Any]] = {}
+
 
 class QuestionnaireStep(str, Enum):
     """IRCC Questionnaire steps."""
@@ -237,9 +241,97 @@ async def start_wizard_session(user_id: str = "anonymous"):
         )
 
 
-@router.post("/questionnaire/{session_id}", response_model=WizardSession)
-async def submit_questionnaire(session_id: str, request: QuestionnaireRequest):
-    """Submit or update questionnaire responses."""
+@router.post("/questionnaire/{session_id}", response_model=Dict[str, Any])
+async def submit_questionnaire_answers(session_id: str, answers: Dict[str, Any]):
+    """Submit individual question answers from the wizard (simplified endpoint)."""
+    try:
+        logger.info(f"Received questionnaire answers for session {session_id}: {answers}")
+        
+        # Store answers in memory (in production this would go to database)
+        if session_id not in session_answers_store:
+            session_answers_store[session_id] = {}
+        
+        # Update the stored answers with new ones
+        session_answers_store[session_id].update(answers)
+        
+        total_answers = len(session_answers_store[session_id])
+        
+        response = {
+            "session_id": session_id,
+            "answers_received": len(answers),
+            "total_answers_stored": total_answers,
+            "answers": answers,
+            "status": "success",
+            "message": f"Answers saved successfully. Total: {total_answers} answers stored."
+        }
+        
+        logger.info(f"Stored questionnaire answers for session: {session_id}. Total answers: {total_answers}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Failed to submit questionnaire answers: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to submit questionnaire answers: {str(e)}"
+        )
+
+
+@router.get("/questionnaire/{session_id}/answers", response_model=Dict[str, Any])
+async def get_saved_answers(session_id: str):
+    """Get all saved answers for a session."""
+    try:
+        if session_id not in session_answers_store:
+            return {
+                "session_id": session_id,
+                "total_answers": 0,
+                "answers": {},
+                "message": "No answers found for this session"
+            }
+        
+        stored_answers = session_answers_store[session_id]
+        
+        return {
+            "session_id": session_id,
+            "total_answers": len(stored_answers),
+            "answers": stored_answers,
+            "message": f"Found {len(stored_answers)} saved answers"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get saved answers: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get saved answers: {str(e)}"
+        )
+
+
+@router.get("/debug/all-sessions", response_model=Dict[str, Any])
+async def debug_all_sessions():
+    """Debug endpoint to see all stored session answers."""
+    try:
+        return {
+            "total_sessions": len(session_answers_store),
+            "sessions": {
+                session_id: {
+                    "total_answers": len(answers),
+                    "answers": answers
+                }
+                for session_id, answers in session_answers_store.items()
+            },
+            "message": f"Found {len(session_answers_store)} sessions with stored answers"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get debug info: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get debug info: {str(e)}"
+        )
+
+
+@router.post("/questionnaire-complete/{session_id}", response_model=WizardSession)
+async def submit_complete_questionnaire(session_id: str, request: QuestionnaireRequest):
+    """Submit complete questionnaire responses (complex endpoint)."""
     try:
         # Validate and process questionnaire responses
         responses = request.responses
@@ -262,14 +354,14 @@ async def submit_questionnaire(session_id: str, request: QuestionnaireRequest):
             forms_prefilled=True
         )
         
-        logger.info(f"Updated questionnaire for session: {session_id}")
+        logger.info(f"Updated complete questionnaire for session: {session_id}")
         return updated_session
         
     except Exception as e:
-        logger.error(f"Failed to submit questionnaire: {str(e)}")
+        logger.error(f"Failed to submit complete questionnaire: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to submit questionnaire: {str(e)}"
+            detail=f"Failed to submit complete questionnaire: {str(e)}"
         )
 
 
@@ -365,7 +457,7 @@ async def upload_document(session_id: str, request: DocumentUploadRequest):
 
 @router.get("/prefilled-forms/{session_id}")
 async def get_prefilled_forms(session_id: str):
-    """Get auto-filled forms based on questionnaire responses."""
+    """Generate prefilled IRCC forms based on questionnaire responses."""
     try:
         # In a real implementation, this would fetch the session from database
         # For now, return sample prefilled forms
@@ -422,6 +514,653 @@ async def get_prefilled_forms(session_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get prefilled forms: {str(e)}"
         )
+
+
+@router.get("/tree/{session_id}")
+async def get_wizard_tree(session_id: str):
+    """Get dynamic wizard question tree based on current progress and answers."""
+    logger.info(f"Getting wizard tree for session: {session_id}")
+    
+    try:
+        # TODO: Get actual session data from database
+        # For now, return complete tree structure
+        
+        # Get the question tree structure
+        question_tree = build_question_tree()
+        
+        # Flatten sections: move questions from steps directly to sections
+        flattened_sections = []
+        for section in question_tree.get("sections", []):
+            flattened_section = {
+                "section_id": section.get("section_id"),
+                "section_name": section.get("section_name"), 
+                "section_description": section.get("section_description"),
+                "questions": []
+            }
+            
+            # Collect all questions from all steps in this section
+            for step in section.get("steps", []):
+                step_questions = step.get("questions", [])
+                
+                # Transform question field names to match frontend expectations
+                transformed_questions = []
+                for question in step_questions:
+                    transformed_question = {
+                        "id": question.get("question_id"),           # question_id -> id
+                        "question": question.get("question_text"),   # question_text -> question
+                        "type": question.get("question_type"),       # question_type -> type
+                        "required": question.get("required"),
+                        "options": question.get("options"),
+                        "placeholder": question.get("placeholder"),
+                        "help_text": question.get("help_text"),
+                        "conditional_logic": question.get("conditional_logic"),
+                        "validation": question.get("validation")
+                    }
+                    transformed_questions.append(transformed_question)
+                
+                flattened_section["questions"].extend(transformed_questions)
+            
+            flattened_sections.append(flattened_section)
+        
+        wizard_tree = {
+            "session_id": session_id,
+            "current_step": "basic_info",
+            "total_steps": 21,
+            "completion_percentage": 0,
+            "sections": flattened_sections,
+            "navigation": {
+                "can_go_back": False,
+                "can_go_forward": True,
+                "can_skip": False
+            },
+            "progress_tracking": {
+                "completed_steps": [],
+                "current_section": "Getting Started",
+                "next_section": "Personal Information"
+            }
+        }
+        
+        return wizard_tree
+        
+    except Exception as e:
+        logger.error(f"Failed to get wizard tree: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load wizard structure"
+        )
+
+
+def build_question_tree() -> Dict[str, Any]:
+    """Build the complete question tree structure for the wizard."""
+    return {
+        "sections": [
+            {
+                "section_id": "getting_started",
+                "section_name": "Getting Started",
+                "section_description": "Basic information about your application",
+                "steps": [
+                    {
+                        "step_id": "basic_info",
+                        "step_name": "Basic Information",
+                        "step_description": "Tell us about your purpose and current situation",
+                        "questions": [
+                            {
+                                "question_id": "purpose_in_canada",
+                                "question_text": "What would you like to do in Canada?",
+                                "question_type": "single_choice",
+                                "required": True,
+                                "options": [
+                                    {"value": "Study", "label": "Study", "selected": True},
+                                    {"value": "Work", "label": "Work", "selected": False},
+                                    {"value": "Visit", "label": "Visit", "selected": False},
+                                    {"value": "Transit", "label": "Transit", "selected": False}
+                                ],
+                                "help_text": "Select your primary purpose for coming to Canada"
+                            },
+                            {
+                                "question_id": "duration_of_stay",
+                                "question_text": "How long are you planning to stay?",
+                                "question_type": "single_choice",
+                                "required": True,
+                                "options": [
+                                    {"value": "Temporarily - less than 6 months", "label": "Temporarily - less than 6 months", "selected": False},
+                                    {"value": "Temporarily - more than 6 months", "label": "Temporarily - more than 6 months", "selected": True},
+                                    {"value": "Permanently", "label": "Permanently", "selected": False}
+                                ],
+                                "conditional_logic": {
+                                    "depends_on": "purpose_in_canada",
+                                    "show_if": ["Study", "Work"]
+                                }
+                            },
+                            {
+                                "question_id": "passport_country_code",
+                                "question_text": "What country issued your passport?",
+                                "question_type": "country_select",
+                                "required": True,
+                                "placeholder": "Select your country...",
+                                "help_text": "Choose the country that issued your current passport"
+                            },
+                            {
+                                "question_id": "current_residence",
+                                "question_text": "What country do you currently live in?",
+                                "question_type": "country_select", 
+                                "required": True,
+                                "placeholder": "Select your current residence...",
+                                "help_text": "This may be different from your passport country"
+                            },
+                            {
+                                "question_id": "has_canadian_family",
+                                "question_text": "Do you have a family member who is a Canadian citizen or permanent resident?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "This includes spouse, parent, child, or sibling"
+                            },
+                            {
+                                "question_id": "date_of_birth",
+                                "question_text": "What is your date of birth?",
+                                "question_type": "date",
+                                "required": True,
+                                "validation": {
+                                    "min_age": 16,
+                                    "max_age": 65
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "section_id": "education_background",
+                "section_name": "Education Background",
+                "section_description": "Information about your education and proposed studies",
+                "steps": [
+                    {
+                        "step_id": "education_status",
+                        "step_name": "Education Status",
+                        "step_description": "Your current education status and institution details",
+                        "questions": [
+                            {
+                                "question_id": "has_provincial_attestation",
+                                "question_text": "Do you have a provincial attestation letter (PAL) or territorial attestation letter (TAL)?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Required for most study permit applications as of January 2024"
+                            },
+                            {
+                                "question_id": "attestation_province",
+                                "question_text": "Which province or territory issued your attestation letter?",
+                                "question_type": "province_select",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "has_provincial_attestation",
+                                    "show_if": ["Yes"]
+                                },
+                                "options": [
+                                    {"value": "Ontario", "label": "Ontario"},
+                                    {"value": "British Columbia", "label": "British Columbia"},
+                                    {"value": "Quebec", "label": "Quebec"},
+                                    {"value": "Alberta", "label": "Alberta"},
+                                    {"value": "Manitoba", "label": "Manitoba"},
+                                    {"value": "Saskatchewan", "label": "Saskatchewan"},
+                                    {"value": "Nova Scotia", "label": "Nova Scotia"},
+                                    {"value": "New Brunswick", "label": "New Brunswick"},
+                                    {"value": "Newfoundland and Labrador", "label": "Newfoundland and Labrador"},
+                                    {"value": "Prince Edward Island", "label": "Prince Edward Island"},
+                                    {"value": "Northwest Territories", "label": "Northwest Territories"},
+                                    {"value": "Yukon", "label": "Yukon"},
+                                    {"value": "Nunavut", "label": "Nunavut"}
+                                ]
+                            },
+                            {
+                                "question_id": "accepted_to_dli",
+                                "question_text": "Have you been accepted to a designated learning institution (DLI)?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "You need an acceptance letter from a DLI to apply for a study permit"
+                            },
+                            {
+                                "question_id": "post_secondary_institution",
+                                "question_text": "Is this a post-secondary designated learning institution?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "accepted_to_dli",
+                                    "show_if": ["Yes"]
+                                }
+                            },
+                            {
+                                "question_id": "institution_name",
+                                "question_text": "What is the name of your institution?",
+                                "question_type": "text",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "accepted_to_dli",
+                                    "show_if": ["Yes"]
+                                },
+                                "placeholder": "e.g., University of Toronto"
+                            },
+                            {
+                                "question_id": "program_name",
+                                "question_text": "What program will you be studying?",
+                                "question_type": "text",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "accepted_to_dli",
+                                    "show_if": ["Yes"]
+                                },
+                                "placeholder": "e.g., Master of Computer Science"
+                            },
+                            {
+                                "question_id": "program_duration",
+                                "question_text": "What is the duration of your program?",
+                                "question_type": "single_choice",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "accepted_to_dli",
+                                    "show_if": ["Yes"]
+                                },
+                                "options": [
+                                    {"value": "Less than 6 months", "label": "Less than 6 months"},
+                                    {"value": "6 months to 1 year", "label": "6 months to 1 year"},
+                                    {"value": "1 to 2 years", "label": "1 to 2 years"},
+                                    {"value": "2 to 3 years", "label": "2 to 3 years"},
+                                    {"value": "3 to 4 years", "label": "3 to 4 years"},
+                                    {"value": "More than 4 years", "label": "More than 4 years"}
+                                ]
+                            },
+                            {
+                                "question_id": "program_start_date",
+                                "question_text": "When does your program start?",
+                                "question_type": "date",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "accepted_to_dli",
+                                    "show_if": ["Yes"]
+                                },
+                                "validation": {
+                                    "min_date": "today",
+                                    "max_date": "2025-12-31"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "section_id": "financial_information",
+                "section_name": "Financial Information",
+                "section_description": "Proof of financial support for your studies",
+                "steps": [
+                    {
+                        "step_id": "financial_status",
+                        "step_name": "Financial Proof",
+                        "step_description": "Show that you can financially support yourself",
+                        "questions": [
+                            {
+                                "question_id": "has_sds_gic",
+                                "question_text": "Do you have a Guaranteed Investment Certificate (GIC) from a participating Canadian financial institution for at least $20,635?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Required for Student Direct Stream (SDS) processing"
+                            },
+                            {
+                                "question_id": "tuition_paid_full",
+                                "question_text": "Have you paid your first year tuition in full?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Proof of tuition payment strengthens your application"
+                            },
+                            {
+                                "question_id": "gic_amount",
+                                "question_text": "What is the amount of your GIC (in CAD)?",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "has_sds_gic",
+                                    "show_if": ["Yes"]
+                                },
+                                "validation": {
+                                    "min_value": 20635,
+                                    "currency": "CAD"
+                                },
+                                "placeholder": "20635"
+                            },
+                            {
+                                "question_id": "tuition_amount",
+                                "question_text": "How much tuition have you paid (in CAD)?",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "tuition_paid_full",
+                                    "show_if": ["Yes"]
+                                },
+                                "validation": {
+                                    "min_value": 5000,
+                                    "currency": "CAD"
+                                },
+                                "placeholder": "45000"
+                            },
+                            {
+                                "question_id": "funding_source",
+                                "question_text": "What is your source of funding?",
+                                "question_type": "multiple_choice",
+                                "required": True,
+                                "options": [
+                                    {"value": "Personal savings", "label": "Personal savings"},
+                                    {"value": "Family support", "label": "Family support"},
+                                    {"value": "Education loan", "label": "Education loan"},
+                                    {"value": "Scholarship", "label": "Scholarship"},
+                                    {"value": "Sponsor", "label": "Sponsor"},
+                                    {"value": "Employment income", "label": "Employment income"}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "section_id": "language_requirements",
+                "section_name": "Language Requirements",
+                "section_description": "English or French language proficiency",
+                "steps": [
+                    {
+                        "step_id": "language_test",
+                        "step_name": "Language Test Results",
+                        "step_description": "Your language test scores",
+                        "questions": [
+                            {
+                                "question_id": "has_language_test",
+                                "question_text": "Have you taken a language test in the past 2 years?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Required for most study permit applications"
+                            },
+                            {
+                                "question_id": "test_type",
+                                "question_text": "Which language test did you take?",
+                                "question_type": "single_choice",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "has_language_test",
+                                    "show_if": ["Yes"]
+                                },
+                                "options": [
+                                    {"value": "IELTS", "label": "IELTS (International English Language Testing System)"},
+                                    {"value": "TOEFL", "label": "TOEFL (Test of English as a Foreign Language)"},
+                                    {"value": "PTE", "label": "PTE (Pearson Test of English)"},
+                                    {"value": "CELPIP", "label": "CELPIP (Canadian English Language Proficiency Index Program)"},
+                                    {"value": "TEF", "label": "TEF (Test d'évaluation de français)"},
+                                    {"value": "TCF", "label": "TCF (Test de connaissance du français)"}
+                                ]
+                            },
+                            {
+                                "question_id": "all_scores_6_plus",
+                                "question_text": "Are all your IELTS scores 6.0 or higher?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "test_type",
+                                    "show_if": ["IELTS"]
+                                },
+                                "help_text": "Minimum requirement for Student Direct Stream"
+                            },
+                            {
+                                "question_id": "listening_score",
+                                "question_text": "IELTS Listening score",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "test_type",
+                                    "show_if": ["IELTS"]
+                                },
+                                "validation": {
+                                    "min_value": 0,
+                                    "max_value": 9,
+                                    "step": 0.5
+                                },
+                                "placeholder": "7.5"
+                            },
+                            {
+                                "question_id": "reading_score",
+                                "question_text": "IELTS Reading score",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "test_type",
+                                    "show_if": ["IELTS"]
+                                },
+                                "validation": {
+                                    "min_value": 0,
+                                    "max_value": 9,
+                                    "step": 0.5
+                                },
+                                "placeholder": "7.0"
+                            },
+                            {
+                                "question_id": "writing_score",
+                                "question_text": "IELTS Writing score",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "test_type",
+                                    "show_if": ["IELTS"]
+                                },
+                                "validation": {
+                                    "min_value": 0,
+                                    "max_value": 9,
+                                    "step": 0.5
+                                },
+                                "placeholder": "6.5"
+                            },
+                            {
+                                "question_id": "speaking_score",
+                                "question_text": "IELTS Speaking score",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "test_type",
+                                    "show_if": ["IELTS"]
+                                },
+                                "validation": {
+                                    "min_value": 0,
+                                    "max_value": 9,
+                                    "step": 0.5
+                                },
+                                "placeholder": "7.0"
+                            },
+                            {
+                                "question_id": "overall_score",
+                                "question_text": "IELTS Overall score",
+                                "question_type": "number",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "test_type",
+                                    "show_if": ["IELTS"]
+                                },
+                                "validation": {
+                                    "min_value": 0,
+                                    "max_value": 9,
+                                    "step": 0.5
+                                },
+                                "placeholder": "7.0"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "section_id": "medical_background",
+                "section_name": "Medical Information",
+                "section_description": "Medical examination requirements",
+                "steps": [
+                    {
+                        "step_id": "medical_exam",
+                        "step_name": "Medical Examination",
+                        "step_description": "Information about your medical exam",
+                        "questions": [
+                            {
+                                "question_id": "has_medical_exam",
+                                "question_text": "Have you had a medical exam performed by a panel physician within the last 12 months?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Required for students from certain countries or studying certain programs"
+                            },
+                            {
+                                "question_id": "exam_date",
+                                "question_text": "When did you have your medical exam?",
+                                "question_type": "date",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "has_medical_exam",
+                                    "show_if": ["Yes"]
+                                },
+                                "validation": {
+                                    "max_date": "today",
+                                    "min_date": "365_days_ago"
+                                }
+                            },
+                            {
+                                "question_id": "panel_physician",
+                                "question_text": "Which panel physician performed your exam?",
+                                "question_type": "text",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "has_medical_exam",
+                                    "show_if": ["Yes"]
+                                },
+                                "placeholder": "Dr. Smith - Mumbai Medical Center"
+                            },
+                            {
+                                "question_id": "medical_ref_number",
+                                "question_text": "What is your medical reference number?",
+                                "question_type": "text",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "has_medical_exam",
+                                    "show_if": ["Yes"]
+                                },
+                                "placeholder": "e.g., MED123456789"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "section_id": "background_checks",
+                "section_name": "Background Information", 
+                "section_description": "Additional background and eligibility questions",
+                "steps": [
+                    {
+                        "step_id": "personal_background",
+                        "step_name": "Personal Background",
+                        "step_description": "Background checks and personal information",
+                        "questions": [
+                            {
+                                "question_id": "marital_status",
+                                "question_text": "What is your marital status?",
+                                "question_type": "single_choice",
+                                "required": True,
+                                "options": [
+                                    {"value": "Never Married/Single", "label": "Never Married/Single"},
+                                    {"value": "Married", "label": "Married"},
+                                    {"value": "Legally Separated", "label": "Legally Separated"},
+                                    {"value": "Divorced", "label": "Divorced"},
+                                    {"value": "Widowed", "label": "Widowed"},
+                                    {"value": "Common-law", "label": "Common-law"}
+                                ]
+                            },
+                            {
+                                "question_id": "destination_province",
+                                "question_text": "Which province or territory will you be studying in?",
+                                "question_type": "province_select",
+                                "required": True,
+                                "options": [
+                                    {"value": "Ontario", "label": "Ontario"},
+                                    {"value": "British Columbia", "label": "British Columbia"},
+                                    {"value": "Quebec", "label": "Quebec"},
+                                    {"value": "Alberta", "label": "Alberta"},
+                                    {"value": "Manitoba", "label": "Manitoba"},
+                                    {"value": "Saskatchewan", "label": "Saskatchewan"},
+                                    {"value": "Nova Scotia", "label": "Nova Scotia"},
+                                    {"value": "New Brunswick", "label": "New Brunswick"},
+                                    {"value": "Newfoundland and Labrador", "label": "Newfoundland and Labrador"},
+                                    {"value": "Prince Edward Island", "label": "Prince Edward Island"},
+                                    {"value": "Northwest Territories", "label": "Northwest Territories"},
+                                    {"value": "Yukon", "label": "Yukon"},
+                                    {"value": "Nunavut", "label": "Nunavut"}
+                                ]
+                            },
+                            {
+                                "question_id": "criminal_background",
+                                "question_text": "Have you ever been charged with, on trial for, or party to a crime or offence, or subject of any criminal proceedings in any country?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "This includes traffic violations"
+                            },
+                            {
+                                "question_id": "has_valid_permits",
+                                "question_text": "Do you currently have valid status in Canada (work permit, study permit, etc.)?",
+                                "question_type": "yes_no",
+                                "required": True
+                            },
+                            {
+                                "question_id": "wants_family_application",
+                                "question_text": "Do you want to include family members in your application?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "This includes spouse/partner and dependent children"
+                            },
+                            {
+                                "question_id": "has_biometrics",
+                                "question_text": "Have you given your biometrics for a Canadian visa, permit or citizenship application in the past 10 years?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Biometrics are valid for 10 years"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "section_id": "final_steps",
+                "section_name": "Final Steps",
+                "section_description": "Payment and document submission",
+                "steps": [
+                    {
+                        "step_id": "fees_payment",
+                        "step_name": "Fees and Payment",
+                        "step_description": "Application fees and payment method",
+                        "questions": [
+                            {
+                                "question_id": "will_pay_fees",
+                                "question_text": "Are you ready to pay the application fees?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "Study permit: $150 CAD + Biometrics: $85 CAD = $235 CAD total"
+                            },
+                            {
+                                "question_id": "pay_online",
+                                "question_text": "Do you want to pay online?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "conditional_logic": {
+                                    "depends_on": "will_pay_fees",
+                                    "show_if": ["Yes"]
+                                }
+                            },
+                            {
+                                "question_id": "can_scan_documents",
+                                "question_text": "Can you scan or take clear photos of your documents?",
+                                "question_type": "yes_no",
+                                "required": True,
+                                "help_text": "You'll need to upload digital copies of all required documents"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
 
 
 # Helper Functions

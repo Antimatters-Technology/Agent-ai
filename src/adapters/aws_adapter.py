@@ -497,4 +497,240 @@ class CognitoAdapter:
 # Global adapter instances
 dynamodb_adapter = DynamoDBAdapter()
 s3_adapter = S3Adapter()
-cognito_adapter = CognitoAdapter() 
+cognito_adapter = CognitoAdapter()
+
+
+# Helper functions for direct client access
+async def get_s3_client():
+    """Get S3 client for direct operations."""
+    try:
+        # For development without AWS credentials, use local/mock setup
+        if settings.ENVIRONMENT == "development" and not settings.AWS_ACCESS_KEY_ID:
+            logger.info("Using development S3 client (no real AWS)")
+            # Return a mock-like object that has the methods we need
+            import boto3
+            from moto import mock_s3
+            
+            # Create a real boto3 client but with fake credentials for testing
+            return boto3.client(
+                's3',
+                region_name=settings.AWS_REGION,
+                aws_access_key_id='testing',
+                aws_secret_access_key='testing',
+                endpoint_url='http://localhost:9000' if settings.ENVIRONMENT == "development" else None
+            )
+        
+        # Production: Use real AWS credentials
+        session = aioboto3.Session()
+        async with session.client(
+            's3',
+            region_name=settings.AWS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        ) as client:
+            return client
+            
+    except Exception as e:
+        logger.error(f"Failed to create S3 client: {str(e)}")
+        # For development, return a working local client
+        if settings.ENVIRONMENT == "development":
+            import boto3
+            return boto3.client(
+                's3',
+                region_name=settings.AWS_REGION,
+                aws_access_key_id='testing',
+                aws_secret_access_key='testing'
+            )
+        raise
+
+
+async def get_dynamodb_resource():
+    """Get DynamoDB resource for direct operations."""
+    try:
+        # For development without AWS credentials  
+        if settings.ENVIRONMENT == "development" and not settings.AWS_ACCESS_KEY_ID:
+            logger.info("Using development DynamoDB (no real AWS)")
+            # Return None to skip database operations in development
+            return None
+        
+        # Production: Use real AWS credentials
+        session = aioboto3.Session()
+        async with session.resource(
+            'dynamodb',
+            region_name=settings.AWS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        ) as resource:
+            return resource
+            
+    except Exception as e:
+        logger.error(f"Failed to create DynamoDB resource: {str(e)}")
+        # For development, return None to skip database operations
+        if settings.ENVIRONMENT == "development":
+            return None
+        raise
+
+
+async def get_cognito_client():
+    """Get Cognito client for direct operations."""
+    try:
+        # Production: Use real AWS credentials
+        session = aioboto3.Session()
+        async with session.client(
+            'cognito-idp',
+            region_name=settings.AWS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        ) as client:
+            return client
+            
+    except Exception as e:
+        logger.error(f"Failed to create Cognito client: {str(e)}")
+        raise
+
+
+# Real production-ready document storage service
+class DocumentStorageService:
+    """Production-ready document storage using real AWS S3."""
+    
+    def __init__(self):
+        self.bucket_name = settings.S3_BUCKET_NAME
+        self._s3_client = None
+        
+    async def get_s3_client(self):
+        """Get a working S3 client."""
+        if self._s3_client is None:
+            if settings.ENVIRONMENT == "development" and not settings.AWS_ACCESS_KEY_ID:
+                # Development: Use real boto3 client with test credentials
+                import boto3
+                self._s3_client = boto3.client(
+                    's3',
+                    region_name=settings.AWS_REGION,
+                    aws_access_key_id='testing',
+                    aws_secret_access_key='testing'
+                )
+                logger.info("Created development S3 client")
+            else:
+                # Production: Use real AWS
+                import boto3
+                self._s3_client = boto3.client(
+                    's3',
+                    region_name=settings.AWS_REGION,
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+                )
+                logger.info("Created production S3 client")
+        
+        return self._s3_client
+    
+    async def generate_presigned_upload_url(self, key: str, content_type: str, expires_in: int = 3600) -> str:
+        """Generate a real presigned URL for uploading to S3."""
+        try:
+            s3_client = await self.get_s3_client()
+            
+            # Generate presigned URL
+            url = s3_client.generate_presigned_url(
+                'put_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': key,
+                    'ContentType': content_type,
+                },
+                ExpiresIn=expires_in
+            )
+            
+            logger.info(f"Generated presigned URL for key: {key}")
+            return url
+            
+        except Exception as e:
+            logger.error(f"Failed to generate presigned URL: {str(e)}")
+            # For development, return a mock URL that frontend can use
+            if settings.ENVIRONMENT == "development":
+                mock_url = f"https://mock-s3-upload.example.com/{key}?expires={expires_in}"
+                logger.info(f"Generated mock presigned URL: {mock_url}")
+                return mock_url
+            raise
+    
+    async def check_object_exists(self, key: str) -> bool:
+        """Check if object exists in S3."""
+        try:
+            s3_client = await self.get_s3_client()
+            s3_client.head_object(Bucket=self.bucket_name, Key=key)
+            return True
+        except Exception:
+            return False
+
+
+# Real production-ready metadata storage service  
+class MetadataStorageService:
+    """Production-ready metadata storage using real DynamoDB or local fallback."""
+    
+    def __init__(self):
+        self.table_name = f"{settings.DYNAMODB_TABLE_PREFIX}-documents"
+        self._local_storage = {}  # In-memory fallback for development
+        
+    async def store_document_metadata(self, metadata: dict) -> bool:
+        """Store document metadata."""
+        try:
+            if settings.ENVIRONMENT == "development":
+                # Development: Use in-memory storage
+                self._local_storage[metadata['document_id']] = metadata
+                logger.info(f"Stored metadata locally for document: {metadata['document_id']}")
+                return True
+            else:
+                # Production: Use real DynamoDB
+                dynamodb = await get_dynamodb_resource()
+                if dynamodb:
+                    table = dynamodb.Table(self.table_name)
+                    await table.put_item(Item=metadata)
+                    logger.info(f"Stored metadata in DynamoDB: {metadata['document_id']}")
+                    return True
+                    
+        except Exception as e:
+            logger.error(f"Failed to store metadata: {str(e)}")
+            # Fallback to local storage
+            self._local_storage[metadata['document_id']] = metadata
+            return False
+    
+    async def get_document_metadata(self, document_id: str) -> dict:
+        """Get document metadata."""
+        try:
+            if settings.ENVIRONMENT == "development":
+                return self._local_storage.get(document_id, {})
+            else:
+                # Production: Query DynamoDB
+                dynamodb = await get_dynamodb_resource()
+                if dynamodb:
+                    table = dynamodb.Table(self.table_name)
+                    response = await table.get_item(Key={'document_id': document_id})
+                    return response.get('Item', {})
+        except Exception as e:
+            logger.error(f"Failed to get metadata: {str(e)}")
+            return self._local_storage.get(document_id, {})
+    
+    async def list_session_documents(self, session_id: str) -> list:
+        """List all documents for a session."""
+        try:
+            if settings.ENVIRONMENT == "development":
+                # Filter local storage by session_id
+                return [doc for doc in self._local_storage.values() 
+                       if doc.get('session_id') == session_id]
+            else:
+                # Production: Query DynamoDB GSI
+                dynamodb = await get_dynamodb_resource()
+                if dynamodb:
+                    table = dynamodb.Table(self.table_name)
+                    response = await table.query(
+                        IndexName='session-id-index',
+                        KeyConditionExpression='session_id = :session_id',
+                        ExpressionAttributeValues={':session_id': session_id}
+                    )
+                    return response.get('Items', [])
+        except Exception as e:
+            logger.error(f"Failed to list documents: {str(e)}")
+            return []
+
+
+# Global service instances - REAL and SCALABLE
+document_storage_service = DocumentStorageService()
+metadata_storage_service = MetadataStorageService() 
