@@ -1,0 +1,62 @@
+name: CD
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+environment:
+  name: production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Set up Node.js (for CDK)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          npm install -g aws-cdk
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt aws-cdk-lib constructs
+
+      - name: Deploy infrastructure (CDK)
+        run: |
+          cd infrastructure
+          cdk deploy --all --require-approval never
+
+      - name: Post-deployment smoke test (Lambda import)
+        run: |
+          python - <<'PY'
+          import boto3, json, os, sys
+          lambda_client = boto3.client('lambda', region_name='us-east-1')
+          fn = 'visamate-ocr-handler'
+          try:
+              resp = lambda_client.get_function(FunctionName=fn)
+              print(f"Lambda {fn} version: {resp['Configuration']['Version']}")
+          except Exception as e:
+              print('Smoke test failed:', e)
+              sys.exit(1)
+          PY 
