@@ -45,9 +45,24 @@ class Settings:
     DYNAMODB_TABLE_PREFIX: str = "visamate"
     DYNAMODB_REGION: str = "us-east-1"
     
+    # DynamoDB table names
+    TABLE_DOCS: str = "visamate-ai-documents"
+    TABLE_USERS: str = "visamate-ai-users"
+    TABLE_ANSWERS: str = "visamate-ai-wizardanswers"
+    
+    # AWS SQS/SNS Configuration for OCR processing
+    SQS_OCR_QUEUE: str = "https://sqs.us-east-1.amazonaws.com/790791784202/ocr-jobs-queue"
+    DLQ_OCR_QUEUE: str = "https://sqs.us-east-1.amazonaws.com/790791784202/ocr-jobs-dlq"
+    SNS_OCR_TOPIC: str = "arn:aws:sns:us-east-1:790791784202:ocr-complete-topic"
+    
     # AWS S3 Configuration (Free Tier)
     S3_BUCKET_NAME: str = "visamate-documents"
     S3_REGION: str = "us-east-1"
+    
+    # S3 prefixes for document organization
+    BUCKET_RAW: str = "visamate-documents/raw"
+    BUCKET_JSON: str = "visamate-documents/json"
+    BUCKET_DRAFTS: str = "visamate-documents/drafts"
     
     # AWS Lambda Configuration
     LAMBDA_FUNCTION_PREFIX: str = "visamate"
