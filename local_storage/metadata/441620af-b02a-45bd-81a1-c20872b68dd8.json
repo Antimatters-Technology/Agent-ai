@@ -1,0 +1,13 @@
+{
+  "document_id": "441620af-b02a-45bd-81a1-c20872b68dd8",
+  "session_id": "session_20250629_070025_anonymous",
+  "document_type": "education_transcript",
+  "file_name": "transcript_sample.pdf",
+  "file_size": 33257,
+  "content_type": "application/pdf",
+  "status": "uploading",
+  "s3_key": "documents/session_20250629_070025_anonymous/441620af-b02a-45bd-81a1-c20872b68dd8/20250629_110405_transcript_sample.pdf",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T11:04:05.788683",
+  "expires_at": 1751213045
+}

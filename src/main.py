@@ -20,6 +20,8 @@ import uvicorn
 from src.core.config import settings
 from src.api.v1.wizard import router as wizard_router
 from src.api.v1.documents import router as documents_router
+from src.api.v1.documents_simple import router as documents_simple_router
+from src.api.v1.health import router as health_router
 from src.services.gemini_service import gemini_service
 
 # Configure logging
@@ -287,6 +289,18 @@ app.include_router(
     documents_router,
     prefix=f"/api/{settings.API_VERSION}/documents",
     tags=["Documents"]
+)
+
+app.include_router(
+    documents_simple_router,
+    prefix=f"/api/{settings.API_VERSION}/documents-simple",
+    tags=["Documents-Simple"]
+)
+
+app.include_router(
+    health_router,
+    prefix=f"/api/{settings.API_VERSION}",
+    tags=["Health-Extended"]
 )
 
 # Add fallback routes for frontend URL issues (duplicate /api/v1/)
