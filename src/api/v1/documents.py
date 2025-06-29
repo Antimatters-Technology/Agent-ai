@@ -3,6 +3,7 @@ Document Upload API for VisaMate AI platform.
 Simplified, reliable document handling with proper error handling.
 """
 
+import json
 import logging
 import uuid
 from typing import Dict, Any, List, Optional
@@ -155,6 +156,108 @@ class DocumentService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to complete upload: {str(e)}"
             )
+    
+    async def _trigger_ocr_processing(self, document_id: str, application_id: Optional[str] = None):
+        """Trigger OCR processing by sending message to SQS queue."""
+        try:
+            logger.info(f"Triggering OCR processing for document {document_id}")
+            
+            # Get document metadata
+            metadata = await self.metadata_service.get_document_metadata(document_id)
+            
+            if not metadata:
+                logger.error(f"Document metadata not found for {document_id}")
+                return
+            
+            # Update status to queued for processing
+            metadata.update({
+                'status': DocumentStatus.PROCESSING.value,
+                'updated_at': datetime.utcnow().isoformat(),
+                'queued_for_ocr_at': datetime.utcnow().isoformat()
+            })
+            await self.metadata_service.store_document_metadata(metadata)
+            
+            # Send message to SQS OCR queue
+            try:
+                import boto3
+                sqs_client = boto3.client('sqs', region_name=settings.AWS_REGION)
+                
+                # Prepare SQS message
+                message_body = {
+                    'document_id': document_id,
+                    'session_id': metadata.get('session_id'),
+                    'user_id': metadata.get('user_id'),
+                    'bucket': metadata.get('s3_bucket', settings.S3_BUCKET_NAME),
+                    'key': metadata.get('s3_key'),
+                    'document_type': metadata.get('document_type'),
+                    'file_name': metadata.get('file_name'),
+                    'content_type': metadata.get('content_type'),
+                    'file_size': metadata.get('file_size'),
+                    'application_id': application_id or metadata.get('session_id'),
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                
+                # Send to SQS queue
+                response = sqs_client.send_message(
+                    QueueUrl=settings.SQS_OCR_QUEUE,
+                    MessageBody=json.dumps(message_body),
+                    MessageAttributes={
+                        'DocumentType': {
+                            'StringValue': metadata.get('document_type', 'unknown'),
+                            'DataType': 'String'
+                        },
+                        'DocumentId': {
+                            'StringValue': document_id,
+                            'DataType': 'String'
+                        }
+                    },
+                    MessageDeduplicationId=f"{document_id}_{int(datetime.utcnow().timestamp())}" if settings.SQS_OCR_QUEUE.endswith('.fifo') else None,
+                    MessageGroupId=metadata.get('session_id', 'default') if settings.SQS_OCR_QUEUE.endswith('.fifo') else None
+                )
+                
+                logger.info(f"Successfully queued OCR processing for document {document_id}, MessageId: {response.get('MessageId')}")
+                
+                # Update metadata with queue info
+                metadata.update({
+                    'sqs_message_id': response.get('MessageId'),
+                    'sqs_queue_url': settings.SQS_OCR_QUEUE,
+                    'updated_at': datetime.utcnow().isoformat()
+                })
+                await self.metadata_service.store_document_metadata(metadata)
+                
+                return {
+                    'status': 'queued',
+                    'message_id': response.get('MessageId'),
+                    'document_id': document_id
+                }
+                
+            except Exception as sqs_error:
+                logger.error(f"Failed to send message to SQS: {str(sqs_error)}")
+                
+                # Update status to failed
+                metadata.update({
+                    'status': DocumentStatus.FAILED.value,
+                    'error': f"SQS queue error: {str(sqs_error)}",
+                    'updated_at': datetime.utcnow().isoformat()
+                })
+                await self.metadata_service.store_document_metadata(metadata)
+                raise
+                
+        except Exception as e:
+            logger.error(f"Failed to trigger OCR processing: {str(e)}")
+            # Update status to failed
+            try:
+                metadata = await self.metadata_service.get_document_metadata(document_id)
+                if metadata:
+                    metadata.update({
+                        'status': DocumentStatus.FAILED.value,
+                        'error': str(e),
+                        'updated_at': datetime.utcnow().isoformat()
+                    })
+                    await self.metadata_service.store_document_metadata(metadata)
+            except:
+                pass
+            raise
     
     async def list_documents(self, session_id: str) -> Dict[str, Any]:
         """List all documents for a session."""
