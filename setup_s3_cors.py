@@ -12,8 +12,8 @@ def setup_s3_cors():
     s3_client = boto3.client(
         's3',
         region_name='us-east-1',
-        aws_access_key_id='testing',  # Update with your real credentials
-        aws_secret_access_key='testing'
+        aws_access_key_id='AKIA3QHW5A4FGZJGDUK7',
+        aws_secret_access_key='WRScH2DGVpY0nnvt/dvCYQCb7DSfemz07/56BCVl'
     )
     
     bucket_name = 'visamate-documents'
@@ -81,8 +81,8 @@ def verify_bucket_exists():
     s3_client = boto3.client(
         's3',
         region_name='us-east-1',
-        aws_access_key_id='testing',
-        aws_secret_access_key='testing'
+        aws_access_key_id='AKIA3QHW5A4FGZJGDUK7',
+        aws_secret_access_key='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'
     )
     
     bucket_name = 'visamate-documents'

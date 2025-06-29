@@ -1,0 +1,14 @@
+{
+  "document_id": "06a1edf7-cb91-45a5-b81c-0fc3a12140b4",
+  "session_id": "test-session-1751192514",
+  "document_type": "ielts_results",
+  "file_name": "ielts_results.jpg",
+  "file_size": 2000000,
+  "content_type": "image/jpeg",
+  "status": "uploaded",
+  "s3_key": "documents/test-session-1751192514/06a1edf7-cb91-45a5-b81c-0fc3a12140b4/20250629_102214_ielts_results.jpg",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T10:22:14.282676",
+  "expires_at": 1751210534,
+  "uploaded_at": "2025-06-29T10:22:16.359029"
+}

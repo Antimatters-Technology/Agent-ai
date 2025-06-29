@@ -1,0 +1,13 @@
+{
+  "document_id": "4c71d74e-554f-40dc-9417-5575fd44cb01",
+  "session_id": "real-s3-test",
+  "document_type": "passport",
+  "file_name": "real-upload.pdf",
+  "file_size": 2000000,
+  "content_type": "application/pdf",
+  "status": "uploading",
+  "s3_key": "documents/real-s3-test/4c71d74e-554f-40dc-9417-5575fd44cb01/20250629_103629_real-upload.pdf",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T10:36:29.853798",
+  "expires_at": 1751211389
+}

@@ -1,0 +1,13 @@
+{
+  "document_id": "d250b3ae-7b90-4c8e-a86f-294305e241fe",
+  "session_id": "env-test",
+  "document_type": "passport",
+  "file_name": "test-env.pdf",
+  "file_size": 1500000,
+  "content_type": "application/pdf",
+  "status": "uploading",
+  "s3_key": "documents/env-test/d250b3ae-7b90-4c8e-a86f-294305e241fe/20250629_103933_test-env.pdf",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T10:39:33.843122",
+  "expires_at": 1751211573
+}

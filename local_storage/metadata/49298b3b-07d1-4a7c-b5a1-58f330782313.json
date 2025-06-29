@@ -1,0 +1,13 @@
+{
+  "document_id": "49298b3b-07d1-4a7c-b5a1-58f330782313",
+  "session_id": "frontend-test",
+  "document_type": "passport",
+  "file_name": "test.pdf",
+  "file_size": 1000000,
+  "content_type": "application/pdf",
+  "status": "uploading",
+  "s3_key": "documents/frontend-test/49298b3b-07d1-4a7c-b5a1-58f330782313/20250629_103146_test.pdf",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T10:31:46.310941",
+  "expires_at": 1751211106
+}

@@ -1,0 +1,14 @@
+{
+  "document_id": "a2cba73a-d8be-4a68-9335-21f1953577b5",
+  "session_id": "session_20250629_070025_anonymous",
+  "document_type": "other",
+  "file_name": "transcript_sample.pdf",
+  "file_size": 33257,
+  "content_type": "application/pdf",
+  "status": "uploaded",
+  "s3_key": "documents/session_20250629_070025_anonymous/a2cba73a-d8be-4a68-9335-21f1953577b5/20250629_111244_transcript_sample.pdf",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T11:12:44.216593",
+  "expires_at": 1751213564,
+  "uploaded_at": "2025-06-29T11:15:04.224448"
+}

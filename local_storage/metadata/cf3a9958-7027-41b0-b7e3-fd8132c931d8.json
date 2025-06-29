@@ -1,0 +1,13 @@
+{
+  "document_id": "cf3a9958-7027-41b0-b7e3-fd8132c931d8",
+  "session_id": "test-123",
+  "document_type": "passport",
+  "file_name": "passport.pdf",
+  "file_size": 1000000,
+  "content_type": "application/pdf",
+  "status": "uploading",
+  "s3_key": "documents/test-123/cf3a9958-7027-41b0-b7e3-fd8132c931d8/20250629_102027_passport.pdf",
+  "s3_bucket": "visamate-documents",
+  "created_at": "2025-06-29T10:20:27.133384",
+  "expires_at": 1751210427
+}
